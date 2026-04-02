@@ -1,60 +1,67 @@
-import './style.css'
-import typescriptLogo from './assets/typescript.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import { setupCounter } from './counter.ts'
+/**
+ * main.ts
+ * -------
+ * Entry point — the only file that bridges input, logic, and render.
+ *
+ * Runs a requestAnimationFrame game loop:
+ *   1. Read mouse drag deltas and update camera.
+ *   2. Build an IsoConfig offset by the camera.
+ *   3. Re-render the grid every frame.
+ */
 
-document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
-<section id="center">
-  <div class="hero">
-    <img src="${heroImg}" class="base" width="170" height="179">
-    <img src="${typescriptLogo}" class="framework" alt="TypeScript logo"/>
-    <img src=${viteLogo} class="vite" alt="Vite logo" />
-  </div>
-  <div>
-    <h1>Get started</h1>
-    <p>Edit <code>src/main.ts</code> and save to test <code>HMR</code></p>
-  </div>
-  <button id="counter" type="button" class="counter"></button>
-</section>
+import { createMockRegistry } from "./data/mock-tiles";
+import { generate } from "./logic/wfc-engine";
+import { initCanvas } from "./render/canvas";
+import { createCamera, cameraConfig } from "./render/camera";
+import { renderGrid } from "./render/grid-renderer";
+import { createDragState, attachDragListeners, consumeDelta } from "./input/mouse";
 
-<div class="ticks"></div>
+const GRID_SIZE = 16;
+const TILE_WIDTH = 32;
+const TILE_HEIGHT = 16;
 
-<section id="next-steps">
-  <div id="docs">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#documentation-icon"></use></svg>
-    <h2>Documentation</h2>
-    <p>Your questions, answered</p>
-    <ul>
-      <li>
-        <a href="https://vite.dev/" target="_blank">
-          <img class="logo" src=${viteLogo} alt="" />
-          Explore Vite
-        </a>
-      </li>
-      <li>
-        <a href="https://www.typescriptlang.org" target="_blank">
-          <img class="button-icon" src="${typescriptLogo}" alt="">
-          Learn more
-        </a>
-      </li>
-    </ul>
-  </div>
-  <div id="social">
-    <svg class="icon" role="presentation" aria-hidden="true"><use href="/icons.svg#social-icon"></use></svg>
-    <h2>Connect with us</h2>
-    <p>Join the Vite community</p>
-    <ul>
-      <li><a href="https://github.com/vitejs/vite" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#github-icon"></use></svg>GitHub</a></li>
-      <li><a href="https://chat.vite.dev/" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#discord-icon"></use></svg>Discord</a></li>
-      <li><a href="https://x.com/vite_js" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#x-icon"></use></svg>X.com</a></li>
-      <li><a href="https://bsky.app/profile/vite.dev" target="_blank"><svg class="button-icon" role="presentation" aria-hidden="true"><use href="/icons.svg#bluesky-icon"></use></svg>Bluesky</a></li>
-    </ul>
-  </div>
-</section>
+// --- Data + Logic -----------------------------------------------------------
 
-<div class="ticks"></div>
-<section id="spacer"></section>
-`
+const registry = createMockRegistry();
+const result = generate(GRID_SIZE, GRID_SIZE, registry);
 
-setupCounter(document.querySelector<HTMLButtonElement>('#counter')!)
+if (!result.ok) {
+  throw new Error(`WFC generation failed: ${result.reason}`);
+}
+
+const { grid, width, height } = result;
+
+// --- Render + Input setup ---------------------------------------------------
+
+const { canvas, ctx, cleanup: cleanupCanvas } = initCanvas();
+const camera = createCamera();
+const dragState = createDragState();
+const cleanupDrag = attachDragListeners(canvas, dragState);
+
+// --- Game loop --------------------------------------------------------------
+
+function frame() {
+  // 1. Apply drag movement to camera.
+  const { dx, dy } = consumeDelta(dragState);
+  camera.x += dx;
+  camera.y += dy;
+
+  // 2. Build camera-aware isometric config.
+  const config = cameraConfig(camera, canvas.width, canvas.height, TILE_WIDTH, TILE_HEIGHT);
+
+  // 3. Render.
+  renderGrid(ctx, grid, width, height, config);
+
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
+
+// --- Vite HMR cleanup -------------------------------------------------------
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    cleanupCanvas();
+    cleanupDrag();
+  });
+}

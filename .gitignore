@@ -24,6 +24,7 @@ dist-ssr
 *.sw?
 
 #Personal archives
-CLAUDE.md 
-PLAN.md 
-.claude 
+CLAUDE.md
+PLAN.md
+.claude
+explain.md

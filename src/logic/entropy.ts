@@ -79,16 +79,25 @@ export function lowestEntropyCell(grid: Grid): Cell | null {
  * Used during the Collapse step to pick a single tile from the remaining
  * possibilities of the chosen cell, respecting each tile's weight.
  *
- * Tiles with higher weight are proportionally more likely to be selected.
+ * An optional `boostMap` (tileId → multiplier) lets the caller increase
+ * a tile's effective weight based on context — for example, to make tiles
+ * more likely when the same tile type is already present in neighboring cells
+ * (see `clusterBoost` on TileDefinition and the collapse step in wfc-engine.ts).
+ *
+ * Tiles with higher effective weight are proportionally more likely to be selected.
  */
 export function weightedRandomTile(
-  tiles: import("./types").TileDefinition[]
+  tiles: import("./types").TileDefinition[],
+  boostMap?: ReadonlyMap<string, number>,
 ): import("./types").TileDefinition {
-  const totalWeight = tiles.reduce((sum, t) => sum + t.weight, 0);
+  const effectiveWeight = (t: import("./types").TileDefinition) =>
+    t.weight * (boostMap?.get(t.id) ?? 1);
+
+  const totalWeight = tiles.reduce((sum, t) => sum + effectiveWeight(t), 0);
   let roll = Math.random() * totalWeight;
 
   for (const tile of tiles) {
-    roll -= tile.weight;
+    roll -= effectiveWeight(tile);
     if (roll <= 0) return tile;
   }
 

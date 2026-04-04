@@ -4,32 +4,27 @@
  * Entry point — the only file that bridges input, logic, and render.
  *
  * Runs a requestAnimationFrame game loop:
- *   1. Read mouse drag deltas and update camera.
- *   2. Build an IsoConfig offset by the camera.
- *   3. Re-render the grid every frame.
+ *   1. Read mouse drag deltas and update the camera.
+ *   2. Compute which world cells are visible.
+ *   3. Ask the chunk manager for those chunks (generates new ones on demand).
+ *   4. Render all visible chunks using a world-row sweep for correct depth.
  */
 
-import { createMockRegistry } from "./data/mock-tiles";
-import { generate } from "./logic/wfc-engine";
+import { createTileRegistry } from "./data/tiles";
+import { createChunkManager } from "./logic/chunk-manager";
 import { initCanvas } from "./render/canvas";
-import { createCamera, cameraConfig } from "./render/camera";
-import { renderGrid } from "./render/grid-renderer";
+import { createCamera, cameraConfig, visibleWorldBounds } from "./render/camera";
+import { renderChunks } from "./render/grid-renderer";
 import { createDragState, attachDragListeners, consumeDelta } from "./input/mouse";
 
-const GRID_SIZE = 16;
+const CHUNK_SIZE = 16;
 const TILE_WIDTH = 32;
 const TILE_HEIGHT = 16;
 
 // --- Data + Logic -----------------------------------------------------------
 
-const registry = createMockRegistry();
-const result = generate(GRID_SIZE, GRID_SIZE, registry);
-
-if (!result.ok) {
-  throw new Error(`WFC generation failed: ${result.reason}`);
-}
-
-const { grid, width, height } = result;
+const registry = createTileRegistry();
+const chunkManager = createChunkManager(registry, CHUNK_SIZE);
 
 // --- Render + Input setup ---------------------------------------------------
 
@@ -49,8 +44,24 @@ function frame() {
   // 2. Build camera-aware isometric config.
   const config = cameraConfig(camera, canvas.width, canvas.height, TILE_WIDTH, TILE_HEIGHT);
 
-  // 3. Render.
-  renderGrid(ctx, grid, width, height, config);
+  // 3. Determine which world cells are on screen, then fetch (or generate) the
+  //    chunks that cover them.
+  const bounds = visibleWorldBounds(
+    camera,
+    canvas.width,
+    canvas.height,
+    TILE_WIDTH,
+    TILE_HEIGHT,
+  );
+  const visibleChunks = chunkManager.getVisibleChunks(
+    bounds.minCol,
+    bounds.minRow,
+    bounds.maxCol,
+    bounds.maxRow,
+  );
+
+  // 4. Render.
+  renderChunks(ctx, visibleChunks, CHUNK_SIZE, config);
 
   requestAnimationFrame(frame);
 }

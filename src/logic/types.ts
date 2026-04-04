@@ -22,15 +22,22 @@ export type Socket = string;
  * A TileDefinition is the static description of a tile type.
  * It never changes during generation — it's read-only configuration.
  *
- * @property id      - Unique identifier, also used by the renderer to pick a color.
- * @property sockets - One socket label per cardinal direction.
- * @property weight  - Relative probability of this tile being chosen during
- *                     collapse. Higher = more likely. Default 1.
+ * @property id           - Unique identifier, also used by the renderer to pick a color.
+ * @property sockets      - One socket label per cardinal direction.
+ * @property weight       - Relative probability of this tile being chosen during
+ *                          collapse. Higher = more likely. Default 1.
+ * @property clusterBoost - Optional multiplier applied to this tile's effective weight
+ *                          for each already-collapsed neighbor that shares the same
+ *                          tile ID. Values > 1 cause tiles to cluster together
+ *                          (e.g. water forms oceans, mountains form ranges).
+ *                          Default 1 (no boost). A value of 3 with 2 matching
+ *                          neighbors multiplies the effective weight by 3² = 9.
  */
 export interface TileDefinition {
   readonly id: string;
   readonly sockets: Record<Direction, Socket>;
   readonly weight: number;
+  readonly clusterBoost?: number;
 }
 
 /**
@@ -68,3 +75,24 @@ export type Grid = Cell[];
 export type WFCResult =
   | { ok: true; grid: Grid; width: number; height: number }
   | { ok: false; reason: string };
+
+/**
+ * The integer coordinate of a chunk in chunk-space.
+ * Chunk (0, 0) covers world cells (0..CHUNK_SIZE-1, 0..CHUNK_SIZE-1).
+ * Negative values are valid — the world extends in all four directions.
+ */
+export interface ChunkCoord {
+  readonly cx: number;
+  readonly cy: number;
+}
+
+/**
+ * A generated chunk: a fixed-size slice of the infinite world.
+ * `grid` is a collapsed WFC grid; `width` and `height` are always CHUNK_SIZE.
+ */
+export interface Chunk {
+  readonly coord: ChunkCoord;
+  readonly grid: Grid;
+  readonly width: number;
+  readonly height: number;
+}

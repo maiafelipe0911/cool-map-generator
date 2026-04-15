@@ -11,6 +11,7 @@
  */
 
 import { createTileRegistry } from "./data/tiles";
+import { createBiomeWeightFn } from "./data/biomes";
 import { createChunkManager } from "./logic/chunk-manager";
 import { initCanvas } from "./render/canvas";
 import { createCamera, cameraConfig, visibleWorldBounds } from "./render/camera";
@@ -23,8 +24,11 @@ const TILE_HEIGHT = 16;
 
 // --- Data + Logic -----------------------------------------------------------
 
+const WORLD_SEED = 42;
+
 const registry = createTileRegistry();
-const chunkManager = createChunkManager(registry, CHUNK_SIZE);
+const biomeWeightFn = createBiomeWeightFn(WORLD_SEED);
+const chunkManager = createChunkManager(registry, CHUNK_SIZE, biomeWeightFn);
 
 // --- Render + Input setup ---------------------------------------------------
 

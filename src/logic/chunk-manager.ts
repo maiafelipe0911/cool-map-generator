@@ -15,6 +15,7 @@
 import type { Chunk, ChunkCoord, Direction, TileDefinition } from "./types";
 import type { TileRegistry } from "./tile-registry";
 import { generateChunk } from "./wfc-engine";
+import type { CellWeightFn } from "./wfc-engine";
 
 export interface ChunkManager {
   /** Return the chunk at `coord`, generating it on first access. */
@@ -43,6 +44,7 @@ function chunkKey(coord: ChunkCoord): string {
 export function createChunkManager(
   registry: TileRegistry,
   chunkSize: number,
+  cellWeightFn?: CellWeightFn,
 ): ChunkManager {
   const chunks = new Map<string, Chunk>();
 
@@ -96,6 +98,9 @@ export function createChunkManager(
       chunkSize,
       registry,
       hasConstraints ? borderConstraints : undefined,
+      cellWeightFn,
+      coord.cx * chunkSize,
+      coord.cy * chunkSize,
     );
 
     // generateChunk guarantees a result (falls back to unconstrained on failure).

@@ -18,6 +18,20 @@
 import type { Cell, Direction, Grid, TileDefinition, WFCResult } from "./types";
 import type { TileRegistry } from "./tile-registry";
 import { lowestEntropyCell, weightedRandomTile } from "./entropy";
+import type { WeightFn } from "./entropy";
+
+/**
+ * A per-cell weight function that replaces `tile.weight` during the collapse
+ * step. Receives absolute world coordinates so the biome system can sample
+ * noise at the correct position regardless of which chunk is being generated.
+ *
+ * Return value is used as the base weight; `clusterBoost` is multiplied on top.
+ */
+export type CellWeightFn = (
+  tile: TileDefinition,
+  worldCol: number,
+  worldRow: number,
+) => number;
 
 // ── Grid creation ────────────────────────────────────────────────────────────
 
@@ -59,9 +73,16 @@ export function createGrid(
  * An optional `boostMap` (tileId → multiplier) is forwarded to
  * `weightedRandomTile` so neighbour-affinity boosts can be applied
  * without the collapse function needing to know where they came from.
+ *
+ * An optional `weightFn` replaces `tile.weight` as the base weight
+ * (used by the biome system; `boostMap` is applied on top).
  */
-export function collapse(cell: Cell, boostMap?: ReadonlyMap<string, number>): void {
-  const chosen = weightedRandomTile(cell.possibleTiles, boostMap);
+export function collapse(
+  cell: Cell,
+  boostMap?: ReadonlyMap<string, number>,
+  weightFn?: WeightFn,
+): void {
+  const chosen = weightedRandomTile(cell.possibleTiles, boostMap, weightFn);
   cell.possibleTiles = [chosen];
   cell.collapsed = true;
 }
@@ -218,12 +239,19 @@ function buildBoostMap(
 /**
  * Internal helper: run the observe→collapse→propagate loop on an existing grid.
  * Used by both `generate` (fresh grid) and `generateChunk` (pre-seeded grid).
+ *
+ * `cellWeightFn` is an optional biome weight function. When provided, each cell
+ * is collapsed using its absolute world position to look up biome tile weights.
+ * `worldOffsetX` / `worldOffsetY` translate local cell coordinates to world space.
  */
 function runWFC(
   grid: Grid,
   width: number,
   height: number,
   registry: TileRegistry,
+  cellWeightFn?: CellWeightFn,
+  worldOffsetX = 0,
+  worldOffsetY = 0,
 ): WFCResult {
   for (;;) {
     const cell = lowestEntropyCell(grid);
@@ -244,7 +272,15 @@ function runWFC(
     // Compute affinity boosts from already-collapsed neighbours before picking
     // a tile — this is what produces clusters (oceans, mountain ranges, etc.).
     const boostMap = buildBoostMap(cell, grid, width, height);
-    collapse(cell, boostMap);
+
+    // Build a per-cell weight function that binds this cell's world position.
+    // The biome system uses world coordinates to sample noise, so we add the
+    // chunk's world offset to the local cell coordinates here.
+    const weightFn: WeightFn | undefined = cellWeightFn
+      ? (tile) => cellWeightFn(tile, worldOffsetX + cell.x, worldOffsetY + cell.y)
+      : undefined;
+
+    collapse(cell, boostMap, weightFn);
 
     if (!propagate(grid, width, height, cell, registry)) {
       return { ok: false, reason: "Contradiction during propagation" };
@@ -254,13 +290,27 @@ function runWFC(
 
 /**
  * Run the full WFC algorithm on a fresh grid and return the result.
+ *
+ * Optional `cellWeightFn`, `worldOffsetX`, `worldOffsetY` are forwarded to
+ * `runWFC` so biome weights are preserved even in the fallback path.
  */
 export function generate(
   width: number,
   height: number,
   registry: TileRegistry,
+  cellWeightFn?: CellWeightFn,
+  worldOffsetX = 0,
+  worldOffsetY = 0,
 ): WFCResult {
-  return runWFC(createGrid(width, height, registry), width, height, registry);
+  return runWFC(
+    createGrid(width, height, registry),
+    width,
+    height,
+    registry,
+    cellWeightFn,
+    worldOffsetX,
+    worldOffsetY,
+  );
 }
 
 // ── Multi-seed propagation ────────────────────────────────────────────────────
@@ -329,6 +379,9 @@ export function propagateMultiple(
  * neighbor in that direction. The array length must equal width (for north/south)
  * or height (for east/west).
  *
+ * `cellWeightFn`, `worldOffsetX`, `worldOffsetY` are forwarded to `runWFC` so
+ * biome weights are applied during collapse (see `CellWeightFn` above).
+ *
  * Retries up to MAX_RETRIES times on contradiction. Falls back to an
  * unconstrained generation if all retries fail.
  */
@@ -337,6 +390,9 @@ export function generateChunk(
   height: number,
   registry: TileRegistry,
   borderConstraints?: Partial<Record<Direction, TileDefinition[]>>,
+  cellWeightFn?: CellWeightFn,
+  worldOffsetX = 0,
+  worldOffsetY = 0,
 ): WFCResult {
   const MAX_RETRIES = 5;
 
@@ -416,11 +472,11 @@ export function generateChunk(
     }
 
     // Run the normal observe/collapse loop on the pre-seeded grid.
-    const result = runWFC(grid, width, height, registry);
+    const result = runWFC(grid, width, height, registry, cellWeightFn, worldOffsetX, worldOffsetY);
     if (result.ok) return result;
     // Contradiction during WFC — retry with a fresh grid.
   }
 
-  // All retries failed. Fall back to unconstrained generation.
-  return generate(width, height, registry);
+  // All retries failed. Fall back to unconstrained generation (biome weights preserved).
+  return generate(width, height, registry, cellWeightFn, worldOffsetX, worldOffsetY);
 }
